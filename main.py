@@ -1,12 +1,16 @@
+from machine import Pin, deepsleep, reset_cause, DEEPSLEEP_RESET
+import esp32
 import network
 import time
 import urequests as requests
 import camera
-from machine import Pin
 from time import sleep
 
-# Configura el flash
-flash = Pin(4, Pin.OUT)
+# Configurar el flash
+flash = Pin(4, Pin.OUT)  # Flash en GPIO4 en ESP32-CAM
+
+# Configurar el sensor PIR
+pir_pin = Pin(13, mode=Pin.IN)
 
 # WiFi credentials
 WIFI_SSID = ""
@@ -49,42 +53,69 @@ def tomar_foto():
         print('Error capturando foto:', e)
         return None
     finally:
-        print('Desinicializando cámara...')
-        camera.deinit()
+        camera.deinit()  # IMPORTANTE: liberar la cámara después de usarla
 
 def enviar_foto(buf):
     print('Preparando para enviar la foto...')
+    boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
     headers = {
-        "Content-Type": "image/jpeg"
+        "Content-Type": "multipart/form-data; boundary=" + boundary
     }
+    
+    body = (
+        '--' + boundary + '\r\n'
+        'Content-Disposition: form-data; name="gato"\r\n\r\n'
+        'Luna\r\n'
+        '--' + boundary + '\r\n'
+        'Content-Disposition: form-data; name="image"; filename="foto.jpg"\r\n'
+        'Content-Type: image/jpeg\r\n\r\n'
+    ).encode('utf-8') + buf + ('\r\n--' + boundary + '--\r\n').encode('utf-8')
+
     try:
-        response = requests.post(UPLOAD_URL, headers=headers, data=buf)
-        print('Respuesta del servidor:', response.status_code)
-        response.close()
+        response = requests.post(UPLOAD_URL, headers=headers, data=body)
+        if response is not None:
+            print('Respuesta del servidor:', response.status_code)
+            try:
+                print('Contenido:', response.text)
+            except:
+                print('No se pudo leer el contenido de la respuesta')
+            response.close()
+        else:
+            print('Error: No se recibió respuesta del servidor.')
     except Exception as e:
         print('Error al enviar la foto:', e)
 
+# Configurar la causa de wake-up
+esp32.wake_on_ext0(pin=pir_pin, level=esp32.WAKEUP_ANY_HIGH)
+
 # Programa principal
 try:
-    print('Activando flash...')
-    flash.value(1)
-    sleep(1)  # Dale un segundo para iluminar
+    if reset_cause() == DEEPSLEEP_RESET:
+        print('¡Despertamos por movimiento!')
+        flash.on()
+        sleep(1)  # Dale un segundo de luz
 
-    print('Conectando a WiFi...')
-    conectar_wifi(WIFI_SSID, WIFI_PASSWORD)
+        print('Conectando a WiFi...')
+        conectar_wifi(WIFI_SSID, WIFI_PASSWORD)
 
-    print('Tomando foto...')
-    buf = tomar_foto()
+        print('Tomando foto...')
+        buf = tomar_foto()
 
-    if buf:
-        print('Enviando foto...')
-        enviar_foto(buf)
+        if buf:
+            print('Enviando foto...')
+            enviar_foto(buf)
+
     else:
-        print('No se pudo capturar la foto, no se envía nada.')
+        print('Inicio normal')
+        # Puedes hacer alguna otra inicialización si quieres
 
 except Exception as e:
-    print('Error general:', e)
+    print('Error en el programa principal:', e)
 
 finally:
     print('Apagando flash...')
-    flash.value(0)
+    flash.off()
+    print('Esperando 1 segundo antes de dormir...')
+    sleep(1)
+    print('Entrando en deep sleep...')
+    deepsleep()
