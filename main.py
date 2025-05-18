@@ -6,6 +6,10 @@ import urequests as requests
 import camera
 from time import sleep
 
+
+led = Pin(2, Pin.OUT)
+led.off()  # Asegurar que esté apagado inicialmente
+
 # Configurar el flash
 flash = Pin(4, Pin.OUT)  # Flash en GPIO4 en ESP32-CAM
 
@@ -48,6 +52,8 @@ def tomar_foto():
     try:
         buf = camera.capture()
         print('Foto capturada. Tamaño:', len(buf), 'bytes')
+        print('Apagando flash...')
+        flash.off()
         return buf
     except Exception as e:
         print('Error capturando foto:', e)
@@ -92,12 +98,10 @@ esp32.wake_on_ext0(pin=pir_pin, level=esp32.WAKEUP_ANY_HIGH)
 try:
     if reset_cause() == DEEPSLEEP_RESET:
         print('¡Despertamos por movimiento!')
-        flash.on()
-        sleep(1)  # Dale un segundo de luz
-
         print('Conectando a WiFi...')
         conectar_wifi(WIFI_SSID, WIFI_PASSWORD)
-
+        flash.on()
+        sleep(1)  # Dale un segundo de luz
         print('Tomando foto...')
         buf = tomar_foto()
 
@@ -113,9 +117,10 @@ except Exception as e:
     print('Error en el programa principal:', e)
 
 finally:
-    print('Apagando flash...')
-    flash.off()
-    print('Esperando 1 segundo antes de dormir...')
-    sleep(1)
+    led.on()  # ENCENDER LED para indicar espera
+    print('Esperando 120 segundo antes de dormir...')
+    sleep(120)
+    led.off()  # Apaga el LED
     print('Entrando en deep sleep...')
     deepsleep()
+
